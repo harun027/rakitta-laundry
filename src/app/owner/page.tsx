@@ -1,245 +1,418 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { formatRupiah } from "@/lib/utils";
-import { Select, type SelectOption } from "@/components/ui/select";
-import { 
-  ArrowLeft, 
-  TrendingUp, 
-  AlertTriangle, 
-  Clock, 
-  Wallet, 
-  PackageCheck, 
-  ShoppingBag, 
-  Layers, 
-  ArrowRight,
-  ShieldCheck,
-  Building2,
-  Calendar,
-  Filter,
-  Download,
-  ChevronRight
+import {
+  AlertCircle,
+  AlertTriangle,
+  ChevronRight,
+  Clock,
+  Loader2,
+  Lock,
+  PackageCheck,
+  RefreshCw,
+  Wallet,
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Field } from "@/components/ui/field";
+import { PageBody, PageShell, Section, SectionHead, TopBar } from "@/components/ui/layout";
+import { Select, type SelectOption } from "@/components/ui/select";
+import { DataRow, Notice, StatTile } from "@/components/ui/stat";
+import { apiFetch } from "@/lib/api/client";
+import { useAuth } from "@/lib/supabase/auth-context";
+import { formatRupiah } from "@/lib/utils";
 
-const OUTLET_FILTER_OPTIONS: SelectOption[] = [
-  { value: "all", label: "Semua Outlet (4 Outlet)", hint: "Akumulasi seluruh cabang" },
-  { value: "sby", label: "Surabaya Pusat (Utama)", hint: "WIB · 24 Order Aktif" },
-  { value: "jkt", label: "Jakarta Selatan (Fatmawati)", hint: "WIB · 18 Order Aktif" },
-  { value: "bdg", label: "Bandung Dago (Dipatiukur)", hint: "WIB · 14 Order Aktif" },
-  { value: "bali", label: "Bali Seminyak (Sunset Road)", hint: "WITA · 29 Order Aktif" },
-];
+/* PRD §8.1 "Overview" — the four things an owner opens this page to check.
+ * §5.5: "production overdue" and "ready, not collected" are different
+ * problems, so they stay in separate blocks and separate counts. */
+
+const ALL_OUTLETS = "all";
+
+interface OverdueItem {
+  id: string;
+  order_number: string;
+  customer_name: string;
+  outlet_name: string;
+  service_name: string;
+  stage: string;
+  due_at: string;
+}
+
+interface ReadyItem {
+  id: string;
+  order_number: string;
+  customer_name: string;
+  phone: string | null;
+  outlet_name: string;
+  rack_code: string | null;
+  ready_at: string | null;
+}
+
+interface ReceivableItem {
+  id: string;
+  order_number: string;
+  customer_name: string;
+  phone: string | null;
+  outlet_name: string;
+  balance_idr: number;
+  settlement_status: string;
+  custody_state: string;
+}
+
+interface Overview {
+  generated_at: string;
+  production_overdue: { count: number; items: OverdueItem[] };
+  ready_uncollected: { count: number; items: ReadyItem[] };
+  receivables: { count: number; total_idr: number; items: ReceivableItem[] };
+  cash_today: {
+    received_idr: number;
+    cash_idr: number;
+    noncash_idr: number;
+    refunds_idr: number;
+    expenses_idr: number;
+    open_sessions: number;
+    timezone: string;
+  };
+}
+
+interface EnvelopeError {
+  code?: string;
+  message: string;
+  request_id?: string;
+}
+
+function formatMoment(iso: string | null) {
+  if (!iso) return "—";
+  return new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso));
+}
+
+/** Human lateness, always with a word — colour alone must not carry meaning (§10 charts). */
+function lateness(iso: string) {
+  const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (minutes < 60) return `Terlambat ${Math.max(minutes, 1)} menit`;
+  if (minutes < 1440) return `Terlambat ${Math.floor(minutes / 60)} jam`;
+  return `Terlambat ${Math.floor(minutes / 1440)} hari`;
+}
+
+function waiting(iso: string | null) {
+  if (!iso) return "Menunggu diambil";
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  if (days < 1) return "Siap hari ini";
+  return `Menunggu ${days} hari`;
+}
 
 export default function OwnerOverviewPage() {
-  const [selectedOutlet, setSelectedOutlet] = useState("all");
+  const { activeMembership, isLoading: authLoading } = useAuth();
+  const tenantId = activeMembership?.tenant_id ?? null;
+  const outlets = useMemo(() => activeMembership?.outlets ?? [], [activeMembership]);
 
-  const summary = {
-    totalRevenueToday: 2850000,
-    cashInDrawerToday: 1750000,
-    transferQrisToday: 1100000,
-    activeReceivables: 420000, // Total Piutang belum lunas
-    overdueOrdersCount: 3,
-    readyUncollectedCount: 14,
-    totalKgProcessedToday: 215,
-    onTimeRate: "98.4%",
-  };
+  const [outletId, setOutletId] = useState<string>(ALL_OUTLETS);
+  const [overview, setOverview] = useState<Overview | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<EnvelopeError | null>(null);
 
-  const overdueList = [
-    { id: "1", number: "OUT-260909-0988", customer: "Budi Santoso", service: "Setrika Saja (3,1 kg)", due: "2 jam lalu", outlet: "Surabaya Pusat" },
-    { id: "2", number: "OUT-260910-1002", customer: "Siti Rahma", service: "Cuci Setrika Express (4,2 kg)", due: "30 mnt lalu", outlet: "Surabaya Pusat" },
-    { id: "3", number: "OUT-260909-0955", customer: "Irfan Hakim", service: "Bedcover King (2 Pcs)", due: "1 jam lalu", outlet: "Jakarta Selatan" },
+  const query = useMemo(() => {
+    if (!tenantId) return null;
+    const params = new URLSearchParams({ tenant: tenantId });
+    if (outletId !== ALL_OUTLETS) params.set("outlet", outletId);
+    return params.toString();
+  }, [tenantId, outletId]);
+
+  const load = useCallback(async () => {
+    if (!query) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      setOverview(await apiFetch<Overview>(`/api/reports/overview?${query}`));
+    } catch (err) {
+      const envelope = err as EnvelopeError;
+      setError({ code: envelope.code, message: envelope.message, request_id: envelope.request_id });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [query]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    load();
+  }, [authLoading, load]);
+
+  const outletOptions: SelectOption[] = [
+    { value: ALL_OUTLETS, label: "Semua Outlet", hint: `${outlets.length} outlet yang Anda akses` },
+    ...outlets.map((outlet) => ({ value: outlet.id, label: outlet.name, hint: outlet.timezone })),
   ];
 
-  const receivablesList = [
-    { id: "1", number: "OUT-260910-1000", customer: "Hendro Wibowo", phone: "08123456789", balance: 40000, status: "READY", rack: "RAK-B03" },
-    { id: "2", number: "OUT-260909-0994", customer: "Anita Wijaya", phone: "08561234567", balance: 65000, status: "HANDED_OVER", creditApprovedBy: "Harun (Owner)" },
-    { id: "3", number: "OUT-260910-1008", customer: "Reza Rahardian", phone: "08198765432", balance: 25000, status: "READY", rack: "RAK-A02" },
-  ];
+  const isForbidden = error?.code === "report_forbidden" || error?.code === "outlet_forbidden";
+  const cash = overview?.cash_today;
 
   return (
-    <div className="min-h-screen bg-[#FAFAFA] text-[#111111] antialiased pb-28 selection:bg-black selection:text-white">
-      {/* Header */}
-      <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-neutral-200">
-        <div className="max-w-7xl mx-auto px-6 sm:px-12 h-20 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link 
-              href="/"
-              className="size-10 rounded-full border border-neutral-200 flex items-center justify-center hover:bg-neutral-100 transition-all"
-            >
-              <ArrowLeft className="size-4 text-neutral-800" />
-            </Link>
-            <div>
-              <h1 className="text-lg font-bold tracking-tight text-neutral-900">Ikhtisar Owner & Metrik Operasional</h1>
-              <p className="text-xs text-neutral-500">Executive Realtime Overview & Metrik Finansial</p>
-            </div>
-          </div>
+    <PageShell>
+      <TopBar
+        title="Ikhtisar Owner"
+        subtitle="Keterlambatan, siap diambil, piutang, dan kas hari ini"
+        actions={
+          <Button variant="outline" size="sm" onClick={load} disabled={isLoading || !query}>
+            <RefreshCw className={`size-3.5 ${isLoading ? "animate-spin" : ""}`} />
+            Muat Ulang
+          </Button>
+        }
+      />
 
-          <div className="flex items-center gap-3 w-64">
-            <Select
-              value={selectedOutlet}
-              onValueChange={setSelectedOutlet}
-              options={OUTLET_FILTER_OPTIONS}
-              className="h-10 text-xs font-semibold rounded-full bg-neutral-50/80 border-neutral-200"
-            />
-          </div>
-        </div>
-      </header>
-
-      {/* Main Container */}
-      <main className="max-w-7xl mx-auto px-6 sm:px-12 py-10 space-y-12">
-        {/* 4 Big Numbers KPI */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {/* Card 1 */}
-          <div className="p-8 rounded-3xl border border-neutral-200 bg-white space-y-3 hover-lift shadow-xs">
-            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-neutral-400 block">
-              Penerimaan Uang Hari Ini
-            </span>
-            <div className="text-3xl sm:text-4xl font-extrabold tracking-tight text-neutral-900">
-              {formatRupiah(summary.totalRevenueToday)}
-            </div>
-            <div className="text-xs text-neutral-500 flex justify-between pt-2 border-t border-neutral-100">
-              <span>Kas Fisik: <strong>{formatRupiah(summary.cashInDrawerToday)}</strong></span>
-              <span>QRIS/TRF: <strong>{formatRupiah(summary.transferQrisToday)}</strong></span>
-            </div>
-          </div>
-
-          {/* Card 2 */}
-          <div className="p-8 rounded-3xl border border-neutral-200 bg-white space-y-3 hover-lift shadow-xs">
-            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-amber-600 block">
-              Piutang Aktif (Receivables)
-            </span>
-            <div className="text-3xl sm:text-4xl font-extrabold tracking-tight text-amber-600">
-              {formatRupiah(summary.activeReceivables)}
-            </div>
-            <p className="text-xs text-neutral-500 pt-2 border-t border-neutral-100">
-              Dari 7 transaksi belum lunas
-            </p>
-          </div>
-
-          {/* Card 3 */}
-          <div className="p-8 rounded-3xl border border-neutral-200 bg-white space-y-3 hover-lift shadow-xs">
-            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-red-500 block">
-              Antrean Lewat Deadline (Overdue)
-            </span>
-            <div className="text-3xl sm:text-4xl font-extrabold tracking-tight text-red-600">
-              {summary.overdueOrdersCount} <span className="text-lg font-bold text-neutral-400">Order</span>
-            </div>
-            <p className="text-xs text-neutral-500 pt-2 border-t border-neutral-100">
-              Perlu perhatian & eskalasi mesin
-            </p>
-          </div>
-
-          {/* Card 4 */}
-          <div className="p-8 rounded-3xl border border-neutral-200 bg-white space-y-3 hover-lift shadow-xs">
-            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-600 block">
-              Selesai Belum Diambil Pelanggan
-            </span>
-            <div className="text-3xl sm:text-4xl font-extrabold tracking-tight text-neutral-900">
-              {summary.readyUncollectedCount} <span className="text-lg font-bold text-neutral-400">Paket</span>
-            </div>
-            <p className="text-xs text-neutral-500 pt-2 border-t border-neutral-100">
-              Tersimpan rapi di rak outlet
-            </p>
-          </div>
-        </div>
-
-        {/* 2 Column Critical Watchlists */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Left: Overdue Orders */}
-          <div className="rounded-3xl border border-neutral-200 bg-white p-8 space-y-6 shadow-xs">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-red-600">
-                <AlertTriangle className="size-5" />
-                <h2 className="text-lg font-bold text-neutral-900">Pekerjaan Terlambat (Overdue)</h2>
+      <PageBody>
+        <Section>
+          <Card pad="sm">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Outlet">
+                <Select value={outletId} onValueChange={setOutletId} options={outletOptions} />
+              </Field>
+              <div className="flex items-end">
+                <p className="text-xs leading-relaxed text-ink-muted">
+                  {overview
+                    ? `Data per ${formatMoment(overview.generated_at)} · Kas dihitung menurut hari kalender outlet (${cash?.timezone}).`
+                    : "Angka diambil langsung dari catatan order, kuitansi, refund, dan pengeluaran."}
+                </p>
               </div>
-              <Link href="/production" className="text-xs font-bold text-neutral-500 hover:text-black flex items-center gap-1">
-                Buka Papan Produksi <ChevronRight className="size-4" />
-              </Link>
             </div>
+          </Card>
+        </Section>
 
-            <div className="divide-y divide-neutral-100 text-xs sm:text-sm">
-              {overdueList.map((item) => (
-                <div key={item.id} className="py-4 flex items-center justify-between">
-                  <div className="space-y-1">
+        {/* -------------------------------------------- §8.3 required states */}
+        {isForbidden ? (
+          <Section>
+            <Card pad="lg" className="space-y-4 text-center">
+              <Lock className="mx-auto size-8 text-ink-faint" />
+              <h2 className="text-xl font-extrabold tracking-tight">Akses Ditolak</h2>
+              <p className="mx-auto max-w-md text-sm text-ink-muted">{error?.message}</p>
+              {error?.request_id && <p className="eyebrow">ID Permintaan {error.request_id}</p>}
+            </Card>
+          </Section>
+        ) : error ? (
+          <Section>
+            <Card pad="lg" className="space-y-4">
+              <Notice tone="danger" icon={<AlertCircle className="size-4" />}>
+                <p className="font-bold">Ikhtisar gagal dimuat.</p>
+                <p>{error.message}</p>
+                {error.request_id && <p className="opacity-70">ID Permintaan: {error.request_id}</p>}
+              </Notice>
+              <Button variant="outline" size="sm" onClick={load}>
+                <RefreshCw className="size-3.5" />
+                Coba Lagi
+              </Button>
+            </Card>
+          </Section>
+        ) : isLoading || !overview ? (
+          <Section>
+            <Card pad="lg" className="flex items-center justify-center gap-3 text-sm text-ink-muted">
+              <Loader2 className="size-4 animate-spin" />
+              Memuat ikhtisar…
+            </Card>
+          </Section>
+        ) : (
+          <>
+            {/* ------------------------------------------------------- KPI */}
+            <Section>
+              <SectionHead
+                eyebrow="Ikhtisar"
+                title="Empat Angka Utama"
+                description="Keterlambatan produksi dan cucian siap-tapi-belum-diambil sengaja dipisah: keduanya masalah berbeda (PRD §5.5)."
+                size="sm"
+              />
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <StatTile
+                  label="Uang Diterima Hari Ini"
+                  value={formatRupiah(cash?.received_idr ?? 0)}
+                  hint={`Kas ${formatRupiah(cash?.cash_idr ?? 0)} · Non-kas ${formatRupiah(cash?.noncash_idr ?? 0)}`}
+                  emphasis="positive"
+                />
+                <StatTile
+                  label="Piutang Aktif"
+                  value={formatRupiah(overview.receivables.total_idr)}
+                  hint={`${overview.receivables.count} order belum lunas`}
+                />
+                <StatTile
+                  label="Produksi Terlambat"
+                  value={`${overview.production_overdue.count} pekerjaan`}
+                  hint="Masih dikerjakan dan sudah melewati tenggat sendiri"
+                  emphasis="negative"
+                />
+                <StatTile
+                  label="Siap, Belum Diambil"
+                  value={`${overview.ready_uncollected.count} order`}
+                  hint="Produksi selesai, barang masih di rak outlet"
+                />
+              </div>
+
+              <Card pad="sm" tone="sunken" className="space-y-2">
+                <span className="eyebrow block">Kas Hari Ini ({cash?.timezone})</span>
+                <DataRow label="Uang diterima" value={formatRupiah(cash?.received_idr ?? 0)} tone="positive" />
+                <DataRow label="— tunai" value={formatRupiah(cash?.cash_idr ?? 0)} />
+                <DataRow label="— transfer / QRIS" value={formatRupiah(cash?.noncash_idr ?? 0)} />
+                <DataRow label="Refund dibayarkan" value={formatRupiah(cash?.refunds_idr ?? 0)} tone="negative" />
+                <DataRow label="Pengeluaran kas" value={formatRupiah(cash?.expenses_idr ?? 0)} tone="negative" />
+                <DataRow label="Sesi laci kas terbuka" value={`${cash?.open_sessions ?? 0} sesi`} strong />
+              </Card>
+
+              <Notice tone="info">
+                <p>
+                  Angka di atas adalah ukuran operasional yang berbeda-beda. Nilai order, uang diterima, dan piutang
+                  tidak boleh dijumlahkan menjadi satu angka laba (PRD §9.5).
+                </p>
+              </Notice>
+            </Section>
+
+            {/* --------------------------------------------------- watchlists */}
+            <Section divided>
+              <SectionHead eyebrow="Perlu Tindakan" title="Daftar Pantau" size="sm" />
+
+              <div className="grid gap-6 lg:grid-cols-2">
+                <Card className="space-y-5">
+                  <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
-                      <span className="font-mono font-bold text-neutral-900">{item.number}</span>
-                      <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-bold text-[10px]">
-                        Terlambat {item.due}
-                      </span>
+                      <AlertTriangle className="size-5 text-danger" />
+                      <h3 className="text-base font-bold tracking-tight">Produksi Terlambat</h3>
                     </div>
-                    <div className="text-neutral-700 font-medium">{item.customer} · {item.service}</div>
-                    <div className="text-[11px] text-neutral-400">{item.outlet}</div>
+                    <Link
+                      href="/production"
+                      className="flex items-center gap-1 text-xs font-bold text-ink-muted transition-colors hover:text-ink"
+                    >
+                      Papan Produksi <ChevronRight className="size-4" />
+                    </Link>
+                  </div>
+
+                  {overview.production_overdue.items.length === 0 ? (
+                    <p className="py-6 text-center text-sm text-ink-muted">
+                      Tidak ada pekerjaan yang melewati tenggat. Antrean aman.
+                    </p>
+                  ) : (
+                    <ul className="divide-y divide-line">
+                      {overview.production_overdue.items.map((item) => (
+                        <li key={item.id} className="space-y-1 py-4">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="num text-sm font-bold">{item.order_number}</span>
+                            <Badge variant="danger">{lateness(item.due_at)}</Badge>
+                            <Badge variant="outline">{item.stage}</Badge>
+                          </div>
+                          <p className="text-sm text-ink-soft">
+                            {item.customer_name} · {item.service_name}
+                          </p>
+                          <p className="text-xs text-ink-faint">
+                            {item.outlet_name} · Tenggat {formatMoment(item.due_at)}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {overview.production_overdue.count > overview.production_overdue.items.length && (
+                    <p className="text-xs text-ink-muted">
+                      Menampilkan {overview.production_overdue.items.length} dari {overview.production_overdue.count}{" "}
+                      pekerjaan terlambat.
+                    </p>
+                  )}
+                </Card>
+
+                <Card className="space-y-5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <PackageCheck className="size-5 text-ok" />
+                      <h3 className="text-base font-bold tracking-tight">Siap, Belum Diambil</h3>
+                    </div>
+                    <Link
+                      href="/cashier/orders"
+                      className="flex items-center gap-1 text-xs font-bold text-ink-muted transition-colors hover:text-ink"
+                    >
+                      Serah Terima <ChevronRight className="size-4" />
+                    </Link>
+                  </div>
+
+                  {overview.ready_uncollected.items.length === 0 ? (
+                    <p className="py-6 text-center text-sm text-ink-muted">
+                      Tidak ada cucian selesai yang menunggu diambil.
+                    </p>
+                  ) : (
+                    <ul className="divide-y divide-line">
+                      {overview.ready_uncollected.items.map((item) => (
+                        <li key={item.id} className="space-y-1 py-4">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="num text-sm font-bold">{item.order_number}</span>
+                            <Badge variant="muted">
+                              <Clock className="size-3" />
+                              {waiting(item.ready_at)}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-ink-soft">
+                            {item.customer_name}
+                            {item.phone ? ` · ${item.phone}` : ""}
+                          </p>
+                          <p className="text-xs text-ink-faint">
+                            {item.outlet_name} · {item.rack_code ? `Rak ${item.rack_code}` : "Rak belum dicatat"}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {overview.ready_uncollected.count > overview.ready_uncollected.items.length && (
+                    <p className="text-xs text-ink-muted">
+                      Menampilkan {overview.ready_uncollected.items.length} dari {overview.ready_uncollected.count}{" "}
+                      order.
+                    </p>
+                  )}
+                </Card>
+              </div>
+
+              <Card className="space-y-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Wallet className="size-5 text-warn" />
+                    <h3 className="text-base font-bold tracking-tight">Piutang Pelanggan</h3>
                   </div>
                   <Link
-                    href="/production"
-                    className="px-4 py-2 rounded-full border border-neutral-200 text-xs font-bold hover:bg-black hover:text-white transition-all"
+                    href="/reports"
+                    className="flex items-center gap-1 text-xs font-bold text-ink-muted transition-colors hover:text-ink"
                   >
-                    Periksa
+                    Laporan & Ekspor <ChevronRight className="size-4" />
                   </Link>
                 </div>
-              ))}
-            </div>
-          </div>
 
-          {/* Right: Receivables / Piutang Belum Lunas */}
-          <div className="rounded-3xl border border-neutral-200 bg-white p-8 space-y-6 shadow-xs">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-amber-600">
-                <Wallet className="size-5" />
-                <h2 className="text-lg font-bold text-neutral-900">Piutang Pelanggan</h2>
-              </div>
-              <Link href="/cashier/orders" className="text-xs font-bold text-neutral-500 hover:text-black flex items-center gap-1">
-                Buka Serah Terima <ChevronRight className="size-4" />
-              </Link>
-            </div>
-
-            <div className="divide-y divide-neutral-100 text-xs sm:text-sm">
-              {receivablesList.map((item) => (
-                <div key={item.id} className="py-4 flex items-center justify-between">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono font-bold text-neutral-900">{item.number}</span>
-                      <span className="font-bold text-amber-600 font-mono">{formatRupiah(item.balance)}</span>
-                    </div>
-                    <div className="text-neutral-700 font-medium">{item.customer} ({item.phone})</div>
-                    <div className="text-[11px] text-neutral-400">
-                      {item.rack ? `Lokasi: ${item.rack}` : `Kredit disetujui: ${item.creditApprovedBy}`}
-                    </div>
-                  </div>
-                  <Link
-                    href="/cashier/orders"
-                    className="px-4 py-2 rounded-full bg-neutral-100 text-neutral-800 text-xs font-bold hover:bg-black hover:text-white transition-all"
-                  >
-                    Tagih / Bayar
-                  </Link>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Quick Navigation Footer */}
-        <div className="p-8 rounded-3xl bg-neutral-900 text-white flex flex-col sm:flex-row justify-between items-center gap-6">
-          <div className="space-y-1 text-center sm:text-left">
-            <h3 className="text-xl font-bold">Butuh Laporan Pembukuan Lengkap?</h3>
-            <p className="text-xs text-neutral-400">Ekspor laporan keuangan dengan perlindungan formula CSV & log audit.</p>
-          </div>
-          <div className="flex gap-3">
-            <Link
-              href="/reports"
-              className="px-6 py-3 rounded-full bg-white text-black text-xs font-bold hover:bg-neutral-200 transition-all"
-            >
-              Buka Laporan & Audit
-            </Link>
-            <Link
-              href="/admin"
-              className="px-6 py-3 rounded-full glass-dark text-white text-xs font-bold hover:bg-white/20 transition-all"
-            >
-              Administrasi Outlet
-            </Link>
-          </div>
-        </div>
-      </main>
-    </div>
+                {overview.receivables.items.length === 0 ? (
+                  <p className="py-6 text-center text-sm text-ink-muted">Semua order sudah lunas.</p>
+                ) : (
+                  <ul className="divide-y divide-line">
+                    {overview.receivables.items.map((item) => (
+                      <li key={item.id} className="flex flex-wrap items-center justify-between gap-3 py-4">
+                        <div className="space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="num text-sm font-bold">{item.order_number}</span>
+                            <Badge variant={item.custody_state === "HANDED_OVER" ? "warning" : "outline"}>
+                              {item.custody_state === "HANDED_OVER" ? "Sudah diserahkan" : "Masih di outlet"}
+                            </Badge>
+                            <Badge variant="muted">{item.settlement_status}</Badge>
+                          </div>
+                          <p className="text-sm text-ink-soft">
+                            {item.customer_name}
+                            {item.phone ? ` · ${item.phone}` : ""}
+                          </p>
+                          <p className="text-xs text-ink-faint">{item.outlet_name}</p>
+                        </div>
+                        <span className="num text-base font-extrabold text-warn">
+                          {formatRupiah(item.balance_idr)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {overview.receivables.count > overview.receivables.items.length && (
+                  <p className="text-xs text-ink-muted">
+                    Menampilkan {overview.receivables.items.length} piutang terbesar dari {overview.receivables.count}{" "}
+                    order. Rincian lengkap ada di halaman Laporan.
+                  </p>
+                )}
+              </Card>
+            </Section>
+          </>
+        )}
+      </PageBody>
+    </PageShell>
   );
 }
