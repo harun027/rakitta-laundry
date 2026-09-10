@@ -123,11 +123,18 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <div className="pt-4 border-t border-neutral-100 text-center text-xs text-neutral-500">
-          Belum punya akun bisnis?{" "}
-          <Link href="/onboarding" className="font-bold text-neutral-900 hover:underline">
-            Daftar Outlet Baru
-          </Link>
+        <div className="pt-4 border-t border-neutral-100 text-center text-xs text-neutral-500 space-y-2">
+          <div>
+            <Link href="/reset-password" className="font-bold text-neutral-900 hover:underline">
+              Lupa kata sandi?
+            </Link>
+          </div>
+          <div>
+            Belum punya akun bisnis?{" "}
+            <Link href="/onboarding" className="font-bold text-neutral-900 hover:underline">
+              Daftar Outlet Baru
+            </Link>
+          </div>
         </div>
       </div>
 

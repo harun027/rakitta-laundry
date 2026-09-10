@@ -404,11 +404,11 @@ export default function HomePage() {
 
           <div className="space-y-4 border-t border-white/10 pt-8 text-xs text-white/40 flex flex-col sm:flex-row items-center justify-between gap-4">
             <span>© 2026 Rakkita. Sistem Manajemen Operasional Laundry Terpadu.</span>
-            <div className="flex items-center gap-4">
-              <span>Next.js App Router</span>
-              <span>Supabase PostgreSQL</span>
-              <span>Design System</span>
-            </div>
+            <nav className="flex items-center gap-5">
+              <Link href="/plans" className="transition-colors hover:text-white">Paket</Link>
+              <Link href="/help" className="transition-colors hover:text-white">Bantuan</Link>
+              <Link href="/privacy" className="transition-colors hover:text-white">Privasi &amp; Ketentuan</Link>
+            </nav>
           </div>
         </footer>
       </PageBody>
