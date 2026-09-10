@@ -1,31 +1,78 @@
 "use client";
 
-import { useState } from "react";
-import Link from "next/link";
-import { formatRupiah } from "@/lib/utils";
-import { 
-  buildReadyWhatsAppMessage, 
-  buildUncollectedReminderWhatsAppMessage, 
-  generateWhatsAppUrl 
-} from "@/lib/domain/whatsapp";
-import { 
-  ArrowLeft, 
-  Phone, 
-  Clock, 
-  AlertTriangle, 
-  RotateCcw, 
-  Wallet, 
-  CheckCircle2, 
-  ExternalLink,
-  Search,
-  Layers,
-  Send
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+  Loader2,
+  Lock,
+  RefreshCw,
+  Send,
+  Wallet,
 } from "lucide-react";
-import { FeedbackModal, type FeedbackModalState } from "@/components/ui/feedback-modal";
 
-export default function FollowUpAndIssuesPage() {
-  const [activeTab, setActiveTab] = useState<"uncollected" | "issues" | "rework">("uncollected");
-  const [searchQuery, setSearchQuery] = useState("");
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { PageBody, PageShell, Section, TopBar } from "@/components/ui/layout";
+import { Notice, StatTile } from "@/components/ui/stat";
+import { FeedbackModal, type FeedbackModalState } from "@/components/ui/feedback-modal";
+import {
+  buildUncollectedReminderWhatsAppMessage,
+  generateWhatsAppUrl,
+} from "@/lib/domain/whatsapp";
+import { apiFetch } from "@/lib/api/client";
+import { useAuth } from "@/lib/supabase/auth-context";
+import { formatRupiah } from "@/lib/utils";
+
+/* =============================================================================
+   FR35 — follow-up queue: orders ready but not collected, and orders with an
+   outstanding balance. §5.5: "ready" age is measured from current_ready_at,
+   default threshold 3 calendar days, configurable per outlet in Administrasi.
+   §6.1: a manual WhatsApp click only ever reaches PREPARED / OPENED_IN_WHATSAPP
+   — never "delivered" or "read". Opening the link schedules nothing further.
+   ============================================================================= */
+
+type LoadState = "idle" | "loading" | "ready" | "error" | "forbidden";
+
+interface FollowUpItem {
+  order_id: string;
+  order_number: string;
+  customer_name: string;
+  customer_phone: string | null;
+  service_summary: string | null;
+  balance_idr: number;
+  rack_code?: string | null;
+  current_ready_at?: string;
+  days_ready?: number;
+  is_due?: boolean;
+  accepted_at?: string;
+  last_prepared_at: string | null;
+  last_message_status: "PREPARED" | "OPENED_IN_WHATSAPP" | "FAILED" | null;
+}
+
+function messageOf(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function isForbidden(error: unknown) {
+  return (error as { status?: number } | null)?.status === 403;
+}
+
+export default function FollowUpPage() {
+  const { activeOutlet, isLoading: authLoading } = useAuth();
+  const outletId = activeOutlet?.id;
+
+  const [ready, setReady] = useState<FollowUpItem[]>([]);
+  const [outstanding, setOutstanding] = useState<FollowUpItem[]>([]);
+  const [thresholdDays, setThresholdDays] = useState(3);
+  const [tab, setTab] = useState<"ready" | "outstanding">("ready");
+  const [state, setState] = useState<LoadState>("idle");
+  const [errorMessage, setErrorMessage] = useState("");
+  const [sendingId, setSendingId] = useState<string | null>(null);
+  // §13.3 — one key per order per attempt, reused if the log call is retried.
+  const sendKeysRef = useRef<Map<string, string>>(new Map());
   const [feedback, setFeedback] = useState<FeedbackModalState>({
     isOpen: false,
     type: "info",
@@ -33,309 +80,263 @@ export default function FollowUpAndIssuesPage() {
     message: "",
   });
 
-  // FR35: Ready but uncollected queue
-  const [uncollectedList, setUncollectedList] = useState([
-    {
-      id: "ord-1",
-      orderNumber: "OUT-260906-0811",
-      customerName: "Hendro Wibowo",
-      customerPhone: "081234567890",
-      serviceSummary: "Cuci Setrika Reguler (5,0 kg)",
-      readySinceDays: 4,
-      balanceIdr: 40000,
-      rackCode: "RAK-B03",
-    },
-    {
-      id: "ord-2",
-      orderNumber: "OUT-260907-0912",
-      customerName: "Rina Setyawati",
-      customerPhone: "085612345678",
-      serviceSummary: "Bedcover King (2 pcs)",
-      readySinceDays: 3,
-      balanceIdr: 0,
-      rackCode: "RAK-A01",
-    },
-    {
-      id: "ord-3",
-      orderNumber: "OUT-260905-0720",
-      customerName: "Dimas Anggara",
-      customerPhone: "087799887766",
-      serviceSummary: "Setrika Saja (3,5 kg)",
-      readySinceDays: 5,
-      balanceIdr: 21000,
-      rackCode: "RAK-C02",
-    },
-  ]);
+  const load = useCallback(async () => {
+    if (!outletId) return;
+    setState("loading");
+    try {
+      const res = await apiFetch<{
+        threshold_days: number;
+        ready_uncollected: FollowUpItem[];
+        outstanding: FollowUpItem[];
+      }>(`/api/admin/follow-ups?outlet_id=${encodeURIComponent(outletId)}`);
+      setThresholdDays(res.threshold_days ?? 3);
+      setReady(res.ready_uncollected ?? []);
+      setOutstanding(res.outstanding ?? []);
+      setState("ready");
+    } catch (error) {
+      setErrorMessage(messageOf(error, "Antrean tindak lanjut tidak dapat dimuat."));
+      setState(isForbidden(error) ? "forbidden" : "error");
+    }
+  }, [outletId]);
 
-  // FR19: Issues & Blocker log
-  const [issuesList, setIssuesList] = useState([
-    {
-      id: "iss-1",
-      orderNumber: "OUT-260909-0988",
-      customerName: "Budi Santoso",
-      category: "STAIN",
-      severity: "HIGH",
-      isBlocking: true,
-      description: "Noda minyak membandel di kemeja putih, butuh treatment khusus.",
-      status: "OPEN",
-      reportedBy: "Joko (Operator)",
-      reportedAt: "Kemarin, 14:00 WIB",
-    },
-    {
-      id: "iss-2",
-      orderNumber: "OUT-260910-1004",
-      customerName: "Maya Sari",
-      category: "EQUIPMENT_FAILURE",
-      severity: "MEDIUM",
-      isBlocking: false,
-      description: "Dryer #2 error pemanas, dialihkan ke Dryer #3.",
-      status: "RESOLVED",
-      reportedBy: "Rian (SPV)",
-      reportedAt: "Hari ini, 10:30 WIB",
-    },
-  ]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
-  // FR20: Rework cases
-  const [reworkList, setReworkList] = useState([
-    {
-      id: "rw-1",
-      caseNumber: "RW-OUT-260909-0988-101",
-      orderNumber: "OUT-260909-0988",
-      customerName: "Budi Santoso",
-      type: "PRE_HANDOVER",
-      targetStage: "WASHING",
-      reason: "Pencucian ulang noda kerah baju",
-      custodyState: "IN_PROGRESS",
-      approvedBy: "Rian (SPV)",
-    },
-  ]);
-
-  const handleSendWhatsApp = (item: typeof uncollectedList[0]) => {
+  const sendReminder = async (item: FollowUpItem) => {
+    if (sendingId) return;
+    const daysReady = item.days_ready ?? 0;
     const text = buildUncollectedReminderWhatsAppMessage(
       {
-        orderNumber: item.orderNumber,
-        customerName: item.customerName,
-        customerPhone: item.customerPhone,
-        outletName: "Rakkita Surabaya Pusat",
-        serviceSummary: item.serviceSummary,
-        balanceIdr: item.balanceIdr,
+        orderNumber: item.order_number,
+        customerName: item.customer_name,
+        customerPhone: item.customer_phone,
+        outletName: activeOutlet?.name ?? "Rakkita",
+        serviceSummary: item.service_summary ?? "Layanan cuci",
+        balanceIdr: item.balance_idr,
       },
-      item.readySinceDays
+      daysReady
     );
 
-    const url = generateWhatsAppUrl(item.customerPhone, text);
-    window.open(url, "_blank");
+    if (!item.customer_phone) {
+      setFeedback({
+        isOpen: true,
+        type: "error",
+        title: "Nomor WhatsApp Tidak Tersedia",
+        message: "Pelanggan ini belum memiliki nomor WhatsApp yang tercatat.",
+      });
+      return;
+    }
 
-    // Log to server (FR34/FR35)
-    fetch(`/api/orders/${item.id}/whatsapp`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        recipient_phone: item.customerPhone,
-        message_preview: text.slice(0, 100),
-      }),
-    }).catch(() => {});
+    setSendingId(item.order_id);
+    try {
+      // PRD §6.1 — the click only ever produces PREPARED/OPENED_IN_WHATSAPP,
+      // and reading this queue never schedules an automatic reminder (FR35).
+      window.open(generateWhatsAppUrl(item.customer_phone, text), "_blank");
+      let key = sendKeysRef.current.get(item.order_id);
+      if (!key) {
+        key = crypto.randomUUID();
+        sendKeysRef.current.set(item.order_id, key);
+      }
+      await apiFetch(`/api/orders/${item.order_id}/whatsapp`, {
+        method: "POST",
+        idempotencyKey: key,
+        body: JSON.stringify({
+          recipient_phone: item.customer_phone,
+          message_preview: text.slice(0, 200),
+        }),
+      });
+      sendKeysRef.current.delete(item.order_id);
+      await load();
+    } catch (error) {
+      setFeedback({
+        isOpen: true,
+        type: "error",
+        title: "Catatan Pengingat Gagal Disimpan",
+        message: messageOf(
+          error,
+          "WhatsApp mungkin sudah terbuka, tetapi catatan riwayat gagal disimpan."
+        ),
+      });
+    } finally {
+      setSendingId(null);
+    }
   };
 
+  const list = tab === "ready" ? ready : outstanding;
+  const dueCount = ready.filter((r) => r.is_due).length;
+
+  if (authLoading) {
+    return (
+      <PageShell>
+        <TopBar title="Antrean Tindak Lanjut" subtitle="Menyiapkan sesi…" />
+        <PageBody>
+          <Card tone="sunken" className="flex items-center gap-3 text-sm text-ink-muted">
+            <Loader2 className="size-4 animate-spin" /> Memuat konteks pengguna…
+          </Card>
+        </PageBody>
+      </PageShell>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-[#FAFAFA] text-[#111111] pb-28 antialiased selection:bg-black selection:text-white">
-      {/* Header */}
-      <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-neutral-200">
-        <div className="max-w-7xl mx-auto px-6 sm:px-12 h-20 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link 
-              href="/"
-              className="size-10 rounded-full border border-neutral-200 flex items-center justify-center hover:bg-neutral-100 transition-all"
-            >
-              <ArrowLeft className="size-4 text-neutral-800" />
-            </Link>
-            <div>
-              <h1 className="text-lg font-bold tracking-tight text-neutral-900">Antrean Tindak Lanjut, Isu & Rework</h1>
-              <p className="text-xs text-neutral-500">Pengingat Pelanggan via WhatsApp & Penanganan Cuci Ulang</p>
-            </div>
+    <PageShell>
+      <TopBar
+        title="Antrean Tindak Lanjut"
+        subtitle={activeOutlet ? `${activeOutlet.name} · Pengingat WhatsApp manual` : "Outlet belum dipilih"}
+        actions={
+          <Button variant="outline" onClick={load} disabled={state === "loading"}>
+            <RefreshCw className={`size-4 ${state === "loading" ? "animate-spin" : ""}`} />
+            Muat Ulang
+          </Button>
+        }
+      />
+
+      <PageBody>
+        <Notice tone="info" icon={<Send className="size-4" />}>
+          <p className="font-bold">Pengiriman manual</p>
+          <p>
+            Klik ini hanya membuka WhatsApp dengan pesan siap kirim. Sistem tidak menjadwalkan
+            pengingat otomatis, dan status pesan hanya tercatat sebagai &ldquo;disiapkan&rdquo; atau
+            &ldquo;dibuka di WhatsApp&rdquo; — bukan &ldquo;terkirim&rdquo; atau &ldquo;dibaca&rdquo;.
+          </p>
+        </Notice>
+
+        {state === "ready" && (
+          <div className="grid gap-4 sm:grid-cols-3">
+            <StatTile
+              label="Siap, Belum Diambil"
+              value={ready.length}
+              hint={`Ambang ${thresholdDays} hari kalender sejak siap`}
+            />
+            <StatTile
+              label="Sudah Melewati Ambang"
+              value={dueCount}
+              hint="Prioritas dihubungi lebih dulu"
+              emphasis={dueCount > 0 ? "negative" : "default"}
+            />
+            <StatTile
+              label="Punya Sisa Tagihan"
+              value={outstanding.length}
+              hint="Order aktif dengan saldo belum lunas"
+            />
           </div>
-        </div>
-      </header>
+        )}
 
-      {/* Main Container */}
-      <main className="max-w-7xl mx-auto px-6 sm:px-12 py-10 space-y-10">
-        {/* Navigation Tabs */}
-        <div className="flex gap-3 overflow-x-auto pb-2 border-b border-neutral-200">
+        <nav className="flex gap-2.5 border-b border-line pb-3" aria-label="Bagian tindak lanjut">
           <button
-            onClick={() => setActiveTab("uncollected")}
-            className={`px-5 py-3 rounded-full text-xs font-bold transition-all flex items-center gap-2 shrink-0 ${
-              activeTab === "uncollected" 
-                ? "bg-black text-white shadow-md" 
-                : "border border-neutral-200 text-neutral-600 hover:bg-neutral-100"
+            type="button"
+            onClick={() => setTab("ready")}
+            aria-current={tab === "ready" ? "page" : undefined}
+            className={`press-fx flex h-11 items-center gap-2 rounded-full px-5 text-xs font-bold transition-colors ${
+              tab === "ready"
+                ? "bg-ink text-white shadow-card"
+                : "border border-line text-ink-muted hover:bg-sunken hover:text-ink"
             }`}
           >
-            <Clock className="size-4" />
-            Siap Ambil Menumpuk (Ready &gt;3 Hari)
+            <Clock className="size-4" /> Siap Belum Diambil ({ready.length})
           </button>
           <button
-            onClick={() => setActiveTab("issues")}
-            className={`px-5 py-3 rounded-full text-xs font-bold transition-all flex items-center gap-2 shrink-0 ${
-              activeTab === "issues" 
-                ? "bg-black text-white shadow-md" 
-                : "border border-neutral-200 text-neutral-600 hover:bg-neutral-100"
+            type="button"
+            onClick={() => setTab("outstanding")}
+            aria-current={tab === "outstanding" ? "page" : undefined}
+            className={`press-fx flex h-11 items-center gap-2 rounded-full px-5 text-xs font-bold transition-colors ${
+              tab === "outstanding"
+                ? "bg-ink text-white shadow-card"
+                : "border border-line text-ink-muted hover:bg-sunken hover:text-ink"
             }`}
           >
-            <AlertTriangle className="size-4" />
-            Log Isu &amp; Pemblokir (Issues)
+            <Wallet className="size-4" /> Punya Piutang ({outstanding.length})
           </button>
-          <button
-            onClick={() => setActiveTab("rework")}
-            className={`px-5 py-3 rounded-full text-xs font-bold transition-all flex items-center gap-2 shrink-0 ${
-              activeTab === "rework" 
-                ? "bg-black text-white shadow-md" 
-                : "border border-neutral-200 text-neutral-600 hover:bg-neutral-100"
-            }`}
-          >
-            <RotateCcw className="size-4" />
-            Kasus Rework / Cuci Ulang
-          </button>
-        </div>
+        </nav>
 
-        {/* Tab 1: Uncollected Follow-up Queue */}
-        {activeTab === "uncollected" && (
-          <div className="space-y-6">
-            <div className="p-4 rounded-2xl bg-neutral-100 text-xs text-neutral-600 flex items-center justify-between">
-              <span><strong>WhatsApp Manual:</strong> Pesan WhatsApp disiapkan via link `wa.me` untuk dikonfirmasi dan dikirim langsung oleh staf.</span>
-              <span className="font-mono font-bold">MANUAL DISPATCH</span>
-            </div>
-
+        <Section>
+          {state === "loading" && (
+            <Card tone="sunken" className="flex items-center gap-3 text-sm text-ink-muted">
+              <Loader2 className="size-4 animate-spin" /> Memuat antrean…
+            </Card>
+          )}
+          {state === "forbidden" && (
+            <Notice tone="warning" icon={<Lock className="size-4" />}>
+              <p className="font-bold">Akses ditolak</p>
+              <p>{errorMessage}</p>
+            </Notice>
+          )}
+          {state === "error" && (
+            <Notice tone="danger" icon={<AlertCircle className="size-4" />}>
+              <p className="font-bold">Gagal memuat</p>
+              <p>{errorMessage}</p>
+              <button type="button" onClick={load} className="mt-1 font-bold underline">
+                Coba lagi
+              </button>
+            </Notice>
+          )}
+          {state === "ready" && list.length === 0 && (
+            <Card tone="sunken" className="flex items-center gap-3 text-sm text-ink-muted">
+              <CheckCircle2 className="size-4 text-ok" />
+              {tab === "ready"
+                ? "Tidak ada cucian siap yang mengendap."
+                : "Tidak ada order dengan piutang."}
+            </Card>
+          )}
+          {state === "ready" && list.length > 0 && (
             <div className="grid gap-4">
-              {uncollectedList.map((item) => (
-                <div key={item.id} className="p-6 rounded-3xl border border-neutral-200 bg-white flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 hover-lift shadow-xs">
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono font-bold text-neutral-900">{item.orderNumber}</span>
-                      <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold font-mono">
-                        {item.readySinceDays} Hari di Rak ({item.rackCode})
-                      </span>
+              {list.map((item) => (
+                <Card key={item.order_id} pad="sm" className="flex flex-wrap items-center gap-4">
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="num font-bold text-ink">{item.order_number}</span>
+                      {tab === "ready" && (
+                        <Badge variant={item.is_due ? "danger" : "outline"}>
+                          {item.days_ready ?? 0} hari di rak
+                          {item.rack_code ? ` (${item.rack_code})` : ""}
+                        </Badge>
+                      )}
+                      {item.last_message_status && (
+                        <Badge variant="muted">
+                          {item.last_message_status === "OPENED_IN_WHATSAPP"
+                            ? "Sudah dibuka di WhatsApp"
+                            : "Pesan disiapkan"}
+                        </Badge>
+                      )}
                     </div>
-                    <div className="font-bold text-neutral-900 text-sm">{item.customerName} ({item.customerPhone})</div>
-                    <div className="text-xs text-neutral-500">
-                      Layanan: {item.serviceSummary} · Sisa Tagihan: <strong className={item.balanceIdr > 0 ? "text-amber-600" : "text-emerald-600"}>{item.balanceIdr === 0 ? "LUNAS" : formatRupiah(item.balanceIdr)}</strong>
-                    </div>
+                    <p className="font-bold">
+                      {item.customer_name}
+                      {item.customer_phone && (
+                        <span className="num font-normal text-ink-muted"> ({item.customer_phone})</span>
+                      )}
+                    </p>
+                    <p className="text-xs text-ink-muted">
+                      {item.service_summary ?? "Layanan cuci"} · Sisa Tagihan:{" "}
+                      <strong className={item.balance_idr > 0 ? "text-warn" : "text-ok"}>
+                        {item.balance_idr === 0 ? "LUNAS" : formatRupiah(item.balance_idr)}
+                      </strong>
+                    </p>
                   </div>
 
-                  <button
-                    onClick={() => handleSendWhatsApp(item)}
-                    className="px-5 py-2.5 rounded-full bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 active:scale-95 transition-all flex items-center gap-2 shrink-0 shadow-sm"
+                  <Button
+                    onClick={() => sendReminder(item)}
+                    disabled={sendingId === item.order_id || !item.customer_phone}
+                    className="shrink-0"
                   >
-                    <Send className="size-3.5" /> Buka WhatsApp Pengingat
-                  </button>
-                </div>
+                    {sendingId === item.order_id ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <Send className="size-4" />
+                    )}
+                    {sendingId === item.order_id ? "Membuka…" : "Buka WhatsApp"}
+                  </Button>
+                </Card>
               ))}
             </div>
-          </div>
-        )}
+          )}
+        </Section>
+      </PageBody>
 
-        {/* Tab 2: Issues / Blocker Log (FR19) */}
-        {activeTab === "issues" && (
-          <div className="space-y-6">
-            <div className="rounded-3xl border border-neutral-200 bg-white overflow-hidden shadow-xs">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-neutral-50 border-b border-neutral-200 text-neutral-500 font-mono uppercase tracking-wider">
-                  <tr>
-                    <th className="py-4 px-6 font-bold">No. Order</th>
-                    <th className="py-4 px-6 font-bold">Kategori</th>
-                    <th className="py-4 px-6 font-bold">Tingkat Keparahan</th>
-                    <th className="py-4 px-6 font-bold">Sifat Blokir</th>
-                    <th className="py-4 px-6 font-bold">Deskripsi Masalah</th>
-                    <th className="py-4 px-6 font-bold">Status</th>
-                    <th className="py-4 px-6 font-bold text-right">Aksi</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-neutral-100 font-medium text-neutral-800">
-                  {issuesList.map((iss) => (
-                    <tr key={iss.id} className="hover:bg-neutral-50/70 transition-colors">
-                      <td className="py-4 px-6 font-mono font-bold text-neutral-900">{iss.orderNumber}</td>
-                      <td className="py-4 px-6 font-mono font-bold">{iss.category}</td>
-                      <td className="py-4 px-6">
-                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                          iss.severity === "HIGH" ? "bg-red-100 text-red-700" : "bg-neutral-100 text-neutral-700"
-                        }`}>
-                          {iss.severity}
-                        </span>
-                      </td>
-                      <td className="py-4 px-6">
-                        <span className={`font-bold ${iss.isBlocking ? "text-red-600" : "text-neutral-500"}`}>
-                          {iss.isBlocking ? "Blokir READY & Handover" : "Non-blocking"}
-                        </span>
-                      </td>
-                      <td className="py-4 px-6 max-w-xs">{iss.description}</td>
-                      <td className="py-4 px-6 font-bold text-emerald-600">{iss.status}</td>
-                      <td className="py-4 px-6 text-right">
-                        {iss.status === "OPEN" ? (
-                          <button 
-                            onClick={() => {
-                              setIssuesList((prev) =>
-                                prev.map((i) => (i.id === iss.id ? { ...i, status: "RESOLVED" } : i))
-                              );
-                              setFeedback({
-                                isOpen: true,
-                                type: "success",
-                                title: "Isu Diselesaikan",
-                                message: `Isu pada order ${iss.orderNumber} telah ditandai terselesaikan. Blokir serah terima telah dibuka.`,
-                              });
-                            }}
-                            className="text-xs font-bold text-black hover:underline"
-                          >
-                            Tandai Selesai
-                          </button>
-                        ) : (
-                          <span className="text-neutral-400">Terselesaikan</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* Tab 3: Rework Cases (FR20) */}
-        {activeTab === "rework" && (
-          <div className="space-y-6">
-            <div className="rounded-3xl border border-neutral-200 bg-white overflow-hidden shadow-xs">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-neutral-50 border-b border-neutral-200 text-neutral-500 font-mono uppercase tracking-wider">
-                  <tr>
-                    <th className="py-4 px-6 font-bold">Nomor Kasus Rework</th>
-                    <th className="py-4 px-6 font-bold">No. Order Asal</th>
-                    <th className="py-4 px-6 font-bold">Tipe Rework</th>
-                    <th className="py-4 px-6 font-bold">Tahap Target</th>
-                    <th className="py-4 px-6 font-bold">Alasan Cuci Ulang</th>
-                    <th className="py-4 px-6 font-bold">Disetujui Oleh</th>
-                    <th className="py-4 px-6 font-bold text-right">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-neutral-100 font-medium text-neutral-800">
-                  {reworkList.map((rw) => (
-                    <tr key={rw.id} className="hover:bg-neutral-50/70 transition-colors">
-                      <td className="py-4 px-6 font-mono font-bold text-neutral-900">{rw.caseNumber}</td>
-                      <td className="py-4 px-6 font-mono">{rw.orderNumber}</td>
-                      <td className="py-4 px-6 font-bold">{rw.type}</td>
-                      <td className="py-4 px-6 font-mono font-bold text-amber-700">{rw.targetStage}</td>
-                      <td className="py-4 px-6 max-w-xs">{rw.reason}</td>
-                      <td className="py-4 px-6">{rw.approvedBy}</td>
-                      <td className="py-4 px-6 text-right font-bold text-neutral-900">{rw.custodyState}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-        {/* Global Feedback Modal */}
-        <FeedbackModal
-          state={feedback}
-          onClose={() => setFeedback((prev) => ({ ...prev, isOpen: false }))}
-        />
-      </main>
-    </div>
+      <FeedbackModal
+        state={feedback}
+        onClose={() => setFeedback((prev) => ({ ...prev, isOpen: false }))}
+      />
+    </PageShell>
   );
 }
