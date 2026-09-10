@@ -411,7 +411,10 @@ export default function CashSessionPage() {
               <Loader2 className="size-5 animate-spin" /> Memuat sesi laci kas...
             </div>
           </Card>
-        ) : !session ? (
+        ) : loadError ? null : !session ? (
+          // Only claim "no open session" once the load actually succeeded —
+          // a failed load means we do not know, and saying otherwise invites
+          // a second session on a drawer that already has one.
           <Card pad="lg" className="space-y-6">
             <CardHeader>
               <CardTitle>Belum ada sesi laci kas yang terbuka</CardTitle>
