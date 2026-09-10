@@ -120,9 +120,10 @@ export function handle(
   fn: (ctx: Ctx) => Promise<{ status?: number; data: unknown }>,
   options: { requireIdempotency?: boolean } = {}
 ) {
-  // Next's generated RouteContext is never optional, so neither is this
-  // parameter; static routes simply hand over an empty params promise.
-  return async (request: Request, segment: { params: Promise<Record<string, string>> }) => {
+  return async (
+    request: Request,
+    segment: { params: Promise<Record<string, string>> } = { params: Promise.resolve({}) }
+  ) => {
     const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
 
     try {
@@ -145,7 +146,7 @@ export function handle(
         body,
         requestId,
         idempotencyKey,
-        params: (await segment?.params) ?? {},
+        params: await segment.params,
       });
 
       return NextResponse.json(result.data, {
