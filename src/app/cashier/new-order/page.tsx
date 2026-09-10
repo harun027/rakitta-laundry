@@ -324,7 +324,18 @@ export default function NewOrderPage() {
       idem.reset(idemScope);
       setIsCommitted(true);
     } catch (err: any) {
-      setSubmitError(err.message || "Gagal mencatat order ke server.");
+      // §13.3 — the stored key belongs to a different payload, so the cashier
+      // edited the order after a failed attempt. Auto-retrying under a new key
+      // could duplicate an order that actually saved, so warn and let them
+      // decide; the form is kept, only the key is released.
+      if (err?.code === "idempotency_payload_mismatch") {
+        idem.reset(idemScope);
+        setSubmitError(
+          "Data order berubah sejak percobaan sebelumnya. Periksa dulu di Daftar Order apakah order tadi sudah tersimpan, lalu tekan simpan lagi bila memang belum."
+        );
+      } else {
+        setSubmitError(err.message || "Gagal mencatat order ke server.");
+      }
     } finally {
       setIsSubmitting(false);
     }
