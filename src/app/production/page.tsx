@@ -24,6 +24,7 @@ import {
 import { useAuth } from "@/lib/supabase/auth-context";
 import { createClient } from "@/lib/supabase/client";
 import { apiFetch } from "@/lib/api/client";
+import { useIdempotencyKey } from "@/lib/api/idempotency";
 import { FeedbackModal, type FeedbackModalState } from "@/components/ui/feedback-modal";
 
 interface ProductionItem {
@@ -116,6 +117,8 @@ const STAGE_FILTERS = ["ALL", "QUEUED", "WASHING", "DRYING", "IRONING", "QC", "R
 
 export default function ProductionPage() {
   const { activeOutlet } = useAuth();
+  // §13.3 — the same key travels with every retry of one operator tap.
+  const idem = useIdempotencyKey();
   const [items, setItems] = useState<ProductionItem[]>(INITIAL_QUEUE);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedItem, setSelectedItem] = useState<ProductionItem | null>(null);
@@ -203,15 +206,19 @@ export default function ProductionPage() {
       return;
     }
 
+    const idemScope = `stage:${item.id}`;
+
     try {
       await apiFetch(`/api/work-items/${item.id}/transitions`, {
         method: "POST",
+        idempotencyKey: idem.key(idemScope),
         body: JSON.stringify({
           expected_version: item.version,
           to_stage: next,
         }),
       });
 
+      idem.reset(idemScope);
       setItems((prev) =>
         prev.map((it) => (it.id === id ? { ...it, stage: next, version: it.version + 1 } : it))
       );
@@ -235,10 +242,14 @@ export default function ProductionPage() {
     setIsSubmitting(true);
     setRackError("");
 
+    const idemScope = `pack:${selectedItem.id}`;
+    const idempotencyKey = idem.key(idemScope);
+
     try {
       // 1. Pack and record rack code
       await apiFetch(`/api/work-items/${selectedItem.id}/pack`, {
         method: "POST",
+        idempotencyKey,
         body: JSON.stringify({
           rack_code: rackInput.trim(),
         }),
@@ -247,6 +258,7 @@ export default function ProductionPage() {
       // 2. Advance to READY
       await apiFetch(`/api/work-items/${selectedItem.id}/transitions`, {
         method: "POST",
+        idempotencyKey,
         body: JSON.stringify({
           expected_version: selectedItem.version,
           to_stage: "READY",
@@ -260,6 +272,7 @@ export default function ProductionPage() {
             : it
         )
       );
+      idem.reset(idemScope);
       setSelectedItem(null);
     } catch (err: any) {
       setRackError(err.message || "Gagal menyimpan rak dan status READY.");

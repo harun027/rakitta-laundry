@@ -1,12 +1,15 @@
 import { ApiErrorResponse } from "@/types";
 
 export interface ApiFetchOptions extends RequestInit {
+  /** §13.3 — made once when the action begins and reused on every retry.
+   *  Use `useIdempotencyKey()` from "@/lib/api/idempotency"; never inline a
+   *  fresh `crypto.randomUUID()` at the call site. */
   idempotencyKey?: string;
 }
 
 /**
- * Client helper to call our Route Handlers with automatic Idempotency-Key
- * and unified error extraction based on PRD §13.1 & §13.3.
+ * Client helper to call our Route Handlers with a caller-supplied
+ * Idempotency-Key and unified error extraction based on PRD §13.1 & §13.3.
  */
 export async function apiFetch<T = unknown>(
   url: string,
@@ -18,11 +21,19 @@ export async function apiFetch<T = unknown>(
     headers.set("Content-Type", "application/json");
   }
 
-  // PRD §13.3 — writes should carry an Idempotency-Key
-  if (options.method && options.method.toUpperCase() !== "GET") {
-    if (!headers.has("Idempotency-Key")) {
-      headers.set("Idempotency-Key", options.idempotencyKey || crypto.randomUUID());
+  // PRD §13.3 — every write carries a key the caller owns. Generating one here
+  // would hand a retried-after-timeout request a brand new key, and the server
+  // would happily create a second order. Fail loudly in development instead.
+  const method = options.method?.toUpperCase() ?? "GET";
+  if (method !== "GET") {
+    if (!options.idempotencyKey) {
+      throw new Error(
+        `apiFetch(${url}): idempotencyKey wajib untuk ${method}. ` +
+          "Ambil kunci dari useIdempotencyKey() saat aksi dimulai dan pakai ulang " +
+          "kunci yang sama pada setiap percobaan ulang (PRD §13.3)."
+      );
     }
+    headers.set("Idempotency-Key", options.idempotencyKey);
   }
 
   const res = await fetch(url, {

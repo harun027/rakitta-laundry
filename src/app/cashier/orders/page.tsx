@@ -32,6 +32,7 @@ import {
 import { useAuth } from "@/lib/supabase/auth-context";
 import { createClient } from "@/lib/supabase/client";
 import { apiFetch } from "@/lib/api/client";
+import { useIdempotencyKey } from "@/lib/api/idempotency";
 import { FeedbackModal, type FeedbackModalState } from "@/components/ui/feedback-modal";
 
 /** PRD FR22 — credit release needs an amount limit and a recorded reason. */
@@ -141,6 +142,9 @@ function ledgerOf(o: OrderListItem) {
 
 export default function OrdersPage() {
   const { activeOutlet, role } = useAuth();
+  // §13.3 — a key per money action per order; a retry after a lost response
+  // reuses it so the server replays instead of posting twice.
+  const idem = useIdempotencyKey();
   const [orders, setOrders] = useState<OrderListItem[]>(INITIAL_ORDERS);
   const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -268,6 +272,9 @@ export default function OrdersPage() {
     setIsPaymentSubmitting(true);
     setPaymentError("");
 
+    const idemScope = `payment:${selectedOrder.id}`;
+    const idempotencyKey = idem.key(idemScope);
+
     try {
       if (entersLedgerImmediately(paymentMethod)) {
         const tendered = parseInt(tenderedInput, 10) || 0;
@@ -279,6 +286,7 @@ export default function OrdersPage() {
 
         await apiFetch(`/api/orders/${selectedOrder.id}/cash-receipts`, {
           method: "POST",
+          idempotencyKey,
           body: JSON.stringify({
             applied_idr: applied,
             tendered_idr: tendered,
@@ -293,6 +301,7 @@ export default function OrdersPage() {
       } else {
         const res = await apiFetch<{ attempt_id: string }>(`/api/orders/${selectedOrder.id}/payment-attempts`, {
           method: "POST",
+          idempotencyKey,
           body: JSON.stringify({
             method: paymentMethod,
             amount_idr: applied,
@@ -309,6 +318,7 @@ export default function OrdersPage() {
         );
       }
 
+      idem.reset(idemScope);
       setIsPaymentOpen(false);
       setSelectedId(null);
     } catch (err: any) {
@@ -324,8 +334,10 @@ export default function OrdersPage() {
       if (pendingAttempt?.id) {
         await apiFetch(`/api/payment-attempts/${pendingAttempt.id}/confirm`, {
           method: "POST",
+          idempotencyKey: idem.key(`verify:${pendingAttempt.id}`),
           body: JSON.stringify({ action: "CONFIRM" }),
         });
+        idem.reset(`verify:${pendingAttempt.id}`);
       }
 
       setOrders((prev) =>
@@ -356,8 +368,10 @@ export default function OrdersPage() {
       if (pendingAttempt?.id) {
         await apiFetch(`/api/payment-attempts/${pendingAttempt.id}/reject`, {
           method: "POST",
+          idempotencyKey: idem.key(`reject:${pendingAttempt.id}`),
           body: JSON.stringify({ reason: "Ditolak kasir: Bukti transfer tidak valid" }),
         });
+        idem.reset(`reject:${pendingAttempt.id}`);
       }
 
       setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, pending: undefined } : o)));
@@ -403,9 +417,12 @@ export default function OrdersPage() {
     setIsHandoverSubmitting(true);
     setReceiverError("");
 
+    const idemScope = `handover:${selectedOrder.id}`;
+
     try {
       await apiFetch(`/api/orders/${selectedOrder.id}/handover`, {
         method: "POST",
+        idempotencyKey: idem.key(idemScope),
         body: JSON.stringify({
           expected_version: selectedOrder.version,
           receiver_name: receiverName.trim(),
@@ -417,6 +434,7 @@ export default function OrdersPage() {
       setOrders((prev) =>
         prev.map((o) => (o.id === selectedOrder.id ? { ...o, custodyState: "HANDED_OVER" } : o))
       );
+      idem.reset(idemScope);
       setIsHandoverOpen(false);
       setSelectedId(null);
     } catch (err: any) {

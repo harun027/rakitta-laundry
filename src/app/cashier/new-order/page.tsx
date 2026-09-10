@@ -31,6 +31,7 @@ import {
 import { useAuth } from "@/lib/supabase/auth-context";
 import { createClient } from "@/lib/supabase/client";
 import { apiFetch } from "@/lib/api/client";
+import { useIdempotencyKey } from "@/lib/api/idempotency";
 import { ThermalReceiptModal, ThermalReceiptProps } from "@/components/cashier/thermal-receipt";
 import { ConditionPhotoUploader, ConditionPhoto } from "@/components/cashier/condition-photo-uploader";
 import { SubscriptionBanner } from "@/components/common/subscription-banner";
@@ -97,6 +98,9 @@ interface OrderItemState {
 
 export default function NewOrderPage() {
   const { activeOutlet, activeMembership } = useAuth();
+  // §13.3 — one key for the whole intake action, reused if the cashier taps
+  // "Konfirmasi" again after a lost response, dropped only once it succeeded.
+  const idem = useIdempotencyKey();
   const [services, setServices] = useState<ServiceVersion[]>(DEFAULT_SERVICES);
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
@@ -234,6 +238,9 @@ export default function NewOrderPage() {
     setIsSubmitting(true);
     setSubmitError("");
 
+    const idemScope = "confirm-order";
+    const idempotencyKey = idem.key(idemScope);
+
     try {
       const outletId = activeOutlet?.id;
 
@@ -242,6 +249,7 @@ export default function NewOrderPage() {
       try {
         const custRes = await apiFetch<{ id: string }>("/api/customers", {
           method: "POST",
+          idempotencyKey,
           body: JSON.stringify({
             outlet_id: outletId,
             tenant_id: activeMembership?.tenant_id,
@@ -277,6 +285,7 @@ export default function NewOrderPage() {
         tracking_token?: string;
       }>("/api/orders", {
         method: "POST",
+        idempotencyKey,
         body: JSON.stringify({
           outlet_id: outletId,
           customer_id: customerId,
@@ -298,6 +307,7 @@ export default function NewOrderPage() {
         try {
           await apiFetch(`/api/orders/${orderRes.order_id}/payment-attempts`, {
             method: "POST",
+            idempotencyKey,
             body: JSON.stringify({
               method: paymentMethod,
               amount_idr: depositIdr,
@@ -310,6 +320,8 @@ export default function NewOrderPage() {
       }
 
       if (activeOutlet?.id) clearOrderDraft(activeOutlet.id);
+      // Result is known — the next intake starts a new key.
+      idem.reset(idemScope);
       setIsCommitted(true);
     } catch (err: any) {
       setSubmitError(err.message || "Gagal mencatat order ke server.");
