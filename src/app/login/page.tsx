@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { Logo } from "@/components/ui/logo";
 import { ArrowRight, Lock, Mail, AlertCircle, Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -50,12 +51,7 @@ export default function LoginPage() {
       {/* Brand Header */}
       <div className="text-center space-y-2 mt-4">
         <Link href="/" className="inline-flex items-center gap-2.5">
-          <div className="size-10 rounded-full bg-black text-white flex items-center justify-center font-black text-base tracking-tighter shadow-md">
-            LF
-          </div>
-          <span className="text-2xl font-extrabold tracking-tight text-neutral-900">
-            LaundryFlow
-          </span>
+          <Logo height={40} priority />
         </Link>
         <p className="text-xs text-neutral-500 font-medium">Sistem Operasional Laundry untuk Indonesia</p>
       </div>
@@ -85,7 +81,7 @@ export default function LoginPage() {
               <input
                 type="email"
                 required
-                placeholder="nama@laundryflow.id"
+                placeholder="nama@rakkita.id"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full h-11 pl-10 pr-4 rounded-xl border border-neutral-200 bg-neutral-50/50 text-sm focus:outline-none focus:ring-2 focus:ring-black"
@@ -136,7 +132,7 @@ export default function LoginPage() {
       </div>
 
       <footer className="text-center text-xs text-neutral-400 mb-4">
-        © 2026 LaundryFlow. Sesuai Standar Keamanan PRD §10 & RBAC.
+        © 2026 Rakkita. Sistem Hak Akses Multi-Peran & Keamanan Berlapis.
       </footer>
     </div>
   );

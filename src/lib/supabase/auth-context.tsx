@@ -49,7 +49,7 @@ const DEFAULT_OUTLET: OutletInfo = {
 
 const DEFAULT_MEMBERSHIP: TenantMembership = {
   tenant_id: "tenant_main",
-  tenant_name: "LaundryFlow Mandiri",
+  tenant_name: "Rakkita Mandiri",
   role: "owner",
   outlets: [DEFAULT_OUTLET],
 };

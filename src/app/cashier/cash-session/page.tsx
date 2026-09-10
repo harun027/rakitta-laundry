@@ -114,7 +114,7 @@ export default function CashSessionPage() {
       <TopBar
         width="wide"
         title="Laci Kas & Closing Shift"
-        subtitle={`Rekonsiliasi PRD §9.5 · ${activeOutlet?.name || "Outlet Surabaya"} (${activeOutlet?.timezone?.includes("Jakarta") ? "WIB" : "WITA"})`}
+        subtitle={`Rekonsiliasi Kas Harian · ${activeOutlet?.name || "Outlet Surabaya"} (${activeOutlet?.timezone?.includes("Jakarta") ? "WIB" : "WITA"})`}
         actions={
           <Badge variant={sessionStatus === "OPEN" ? "success" : "muted"}>
             {sessionStatus === "OPEN" ? "Sesi terbuka" : "Sesi ditutup"}

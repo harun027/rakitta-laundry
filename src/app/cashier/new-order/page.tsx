@@ -4,7 +4,8 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Field, Input, Select } from "@/components/ui/field";
+import { Field, Input, Select, Checkbox } from "@/components/ui/field";
+import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { Container, PageShell, TopBar } from "@/components/ui/layout";
 import { DataRow, Notice } from "@/components/ui/stat";
 import { computeCashChange, computeLedger, entersLedgerImmediately } from "@/lib/domain/ledger";
@@ -323,7 +324,7 @@ export default function NewOrderPage() {
     promisedAt: quote.suggestedDueAt,
     customerName,
     customerPhone,
-    outletName: activeOutlet?.name || "LaundryFlow Outlet Surabaya",
+    outletName: activeOutlet?.name || "Rakkita Outlet Surabaya",
     outletAddress: "Jl. Manyar Kertoarjo No. 45",
     outletPhone: "0812-9988-7766",
     lines: quote.lines.map((l) => ({
@@ -351,7 +352,7 @@ export default function NewOrderPage() {
       orderNumber: createdOrderNumber,
       customerName,
       customerPhone,
-      outletName: activeOutlet?.name || "LaundryFlow Outlet Surabaya",
+      outletName: activeOutlet?.name || "Rakkita Outlet Surabaya",
       serviceSummary: quote.lines.map((l) => `${l.serviceName} (${l.unit === "kg" ? formatWeight(l.actualQuantity) : l.actualQuantity + " pcs"})`).join(", "),
       balanceIdr,
       trackingToken,
@@ -464,7 +465,7 @@ export default function NewOrderPage() {
 
       <TopBar
         title="POS Kasir — Intake Order"
-        subtitle="Formula billing snapshot PRD §9.1"
+        subtitle="Pencatatan Timbangan & Billing Otomatis"
         actions={
           <div className="flex items-center gap-2">
             <button
@@ -499,18 +500,18 @@ export default function NewOrderPage() {
             </div>
           )}
 
-          {/* Emergency Recovery Card (PRD §14.4 & T30) */}
+          {/* Emergency Recovery Card */}
           {isEmergencyRecovery && (
-            <div className="p-6 rounded-3xl bg-amber-50 border border-amber-300 space-y-4 shadow-sm">
+            <div className="p-6 rounded-3xl bg-amber-50 border border-amber-300 space-y-5 shadow-sm">
               <div className="flex items-center gap-2 text-amber-950 font-bold text-sm">
                 <Zap className="size-4 text-amber-600" />
-                Mode Pemulihan Nota Kertas Offline (PRD §14.4)
+                Mode Pemulihan Nota Kertas Offline
               </div>
-              <p className="text-xs text-amber-900">
+              <p className="text-xs text-amber-900 leading-relaxed">
                 Gunakan saat memasukkan transaksi yang sebelumnya dicatat di nota kertas manual saat mati lampu/koneksi putus.
               </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Field label="Nomor Seri Nota Kertas *" required>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 items-start">
+                <Field label="Nomor Seri Nota Kertas" required>
                   <Input
                     value={emergencyReference}
                     onChange={(e) => setEmergencyReference(e.target.value)}
@@ -518,24 +519,28 @@ export default function NewOrderPage() {
                     className="font-mono bg-white"
                   />
                 </Field>
-                <Field label="Waktu Transaksi Offline Asal">
-                  <Input
-                    type="datetime-local"
+                <div className="space-y-2">
+                  <label className="block text-xs font-bold text-ink-soft">
+                    Waktu Transaksi Offline Asal
+                  </label>
+                  <DateTimePicker
                     value={emergencyOccurredAt}
-                    onChange={(e) => setEmergencyOccurredAt(e.target.value)}
-                    className="bg-white"
+                    onChange={setEmergencyOccurredAt}
                   />
-                </Field>
+                </div>
               </div>
-              <label className="flex items-center gap-2 text-xs font-bold text-amber-950 pt-1 cursor-pointer">
-                <input
-                  type="checkbox"
+
+              <div className="pt-2 border-t border-amber-200">
+                <Checkbox
                   checked={emergencyCashAlreadyCollected}
                   onChange={(e) => setEmergencyCashAlreadyCollected(e.target.checked)}
-                  className="size-4 rounded"
+                  label={
+                    <span className="font-bold text-amber-950 text-xs">
+                      Uang kas DP sudah dihitung fisik saat shift mati lampu (Jangan tambah ke kas laci hari ini)
+                    </span>
+                  }
                 />
-                Uang kas DP sudah dihitung fisik saat shift mati lampu (Jangan tambah ke kas laci hari ini)
-              </label>
+              </div>
             </div>
           )}
 

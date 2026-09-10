@@ -32,6 +32,7 @@ import {
 import { useAuth } from "@/lib/supabase/auth-context";
 import { createClient } from "@/lib/supabase/client";
 import { apiFetch } from "@/lib/api/client";
+import { FeedbackModal, type FeedbackModalState } from "@/components/ui/feedback-modal";
 
 /** PRD FR22 — credit release needs an amount limit and a recorded reason. */
 const CREDIT_LIMIT_IDR = 100000;
@@ -161,6 +162,12 @@ export default function OrdersPage() {
   const [creditReason, setCreditReason] = useState("");
   const [creditError, setCreditError] = useState("");
   const [isHandoverSubmitting, setIsHandoverSubmitting] = useState(false);
+  const [feedback, setFeedback] = useState<FeedbackModalState>({
+    isOpen: false,
+    type: "info",
+    title: "",
+    message: "",
+  });
 
   const loadOrders = useCallback(async () => {
     if (!activeOutlet?.id) return;
@@ -328,23 +335,45 @@ export default function OrdersPage() {
             : o
         )
       );
+      setFeedback({
+        isOpen: true,
+        type: "success",
+        title: "Pembayaran Diverifikasi",
+        message: "Dana transfer/QRIS berhasil dicocokkan dan dicatat ke buku besar saldo order.",
+      });
     } catch (err: any) {
-      alert(err.message || "Gagal verifikasi pembayaran.");
+      setFeedback({
+        isOpen: true,
+        type: "error",
+        title: "Verifikasi Gagal",
+        message: err.message || "Gagal memverifikasi bukti pembayaran.",
+      });
     }
   };
 
   const rejectPending = async (orderId: string, pendingAttempt?: PendingAttempt) => {
     try {
       if (pendingAttempt?.id) {
-        await apiFetch(`/api/payment-attempts/${pendingAttempt.id}/confirm`, {
+        await apiFetch(`/api/payment-attempts/${pendingAttempt.id}/reject`, {
           method: "POST",
-          body: JSON.stringify({ action: "REJECT" }),
+          body: JSON.stringify({ reason: "Ditolak kasir: Bukti transfer tidak valid" }),
         });
       }
 
       setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, pending: undefined } : o)));
+      setFeedback({
+        isOpen: true,
+        type: "info",
+        title: "Pembayaran Ditolak",
+        message: "Status transfer yang tidak valid telah ditolak.",
+      });
     } catch (err: any) {
-      alert(err.message || "Gagal menolak pembayaran.");
+      setFeedback({
+        isOpen: true,
+        type: "error",
+        title: "Gagal Menolak",
+        message: err.message || "Terjadi kesalahan saat memproses penolakan.",
+      });
     }
   };
 
@@ -765,6 +794,12 @@ export default function OrdersPage() {
             </div>
           </div>
         </Modal>
+
+        {/* Global Feedback Modal */}
+        <FeedbackModal
+          state={feedback}
+          onClose={() => setFeedback((prev) => ({ ...prev, isOpen: false }))}
+        />
       </PageBody>
     </PageShell>
   );

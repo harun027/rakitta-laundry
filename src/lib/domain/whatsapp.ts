@@ -17,7 +17,7 @@ export interface OrderNotificationInfo {
 
 export function buildIntakeWhatsAppMessage(info: OrderNotificationInfo): string {
   const trackingUrl = info.trackingToken
-    ? `\nLacak status laundry Anda secara online di:\nhttps://laundryflow.id/t/${info.trackingToken}`
+    ? `\nLacak status laundry Anda secara online di:\nhttps://rakkita.id/t/${info.trackingToken}`
     : "";
 
   return (

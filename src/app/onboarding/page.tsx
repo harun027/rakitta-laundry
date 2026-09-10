@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { Logo } from "@/components/ui/logo";
 import { ArrowRight, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { apiFetch } from "@/lib/api/client";
@@ -83,14 +84,9 @@ export default function OnboardingPage() {
       {/* Brand Header */}
       <div className="text-center space-y-2 mt-4">
         <Link href="/" className="inline-flex items-center gap-2.5">
-          <div className="size-10 rounded-full bg-black text-white flex items-center justify-center font-black text-base tracking-tighter shadow-md">
-            LF
-          </div>
-          <span className="text-2xl font-extrabold tracking-tight text-neutral-900">
-            LaundryFlow
-          </span>
+          <Logo height={40} priority />
         </Link>
-        <p className="text-xs text-neutral-500 font-medium">Registrasi Bisnis & Onboarding Outlet Pertama (PRD §7.1 FR01)</p>
+        <p className="text-xs text-neutral-500 font-medium">Registrasi Bisnis & Onboarding Outlet Pertama</p>
       </div>
 
       {/* Main Form Box */}
@@ -261,7 +257,7 @@ export default function OnboardingPage() {
             <div className="space-y-2">
               <h2 className="text-2xl font-extrabold tracking-tight text-neutral-900">Outlet Anda Siap Beroperasi!</h2>
               <p className="text-xs text-neutral-500 max-w-sm mx-auto">
-                Bisnis <span className="font-bold text-neutral-900">{businessName || "LaundryFlow Mandiri"}</span> telah terdaftar dengan timezone <span className="font-mono font-bold text-neutral-800">{timezone}</span>.
+                Bisnis <span className="font-bold text-neutral-900">{businessName || "Rakkita Mandiri"}</span> telah terdaftar dengan timezone <span className="font-mono font-bold text-neutral-800">{timezone}</span>.
               </p>
             </div>
 
@@ -276,7 +272,7 @@ export default function OnboardingPage() {
       </div>
 
       <footer className="text-center text-xs text-neutral-400 mb-4">
-        © 2026 LaundryFlow. Sesuai Standar Onboarding PRD §18.1.
+        © 2026 Rakkita. Sistem Operasional Multi-Outlet.
       </footer>
     </div>
   );

@@ -48,7 +48,7 @@ export default function ReportsPage() {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `laporan_laundryflow_${reportType}_${Date.now()}.csv`);
+    link.setAttribute("download", `laporan_rakkita_${reportType}_${Date.now()}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -68,7 +68,7 @@ export default function ReportsPage() {
             </Link>
             <div>
               <h1 className="text-lg font-bold tracking-tight text-neutral-900">Laporan Keuangan & Audit Log</h1>
-              <p className="text-xs text-neutral-500">Rekonsiliasi Sumber Transaksi & Anti-Tamper Log · PRD §15 & §7.4</p>
+              <p className="text-xs text-neutral-500">Rekonsiliasi Sumber Transaksi & Log Audit Mutlak</p>
             </div>
           </div>
 
@@ -156,7 +156,7 @@ export default function ReportsPage() {
             {/* Reconciliation Explanation Banner */}
             <div className="p-8 rounded-3xl bg-neutral-900 text-white space-y-3">
               <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm">
-                <ShieldCheck className="size-5" /> Integritas Pembukuan PRD §9.2 Terpenuhi
+                <ShieldCheck className="size-5" /> Integritas Pembukuan Terverifikasi
               </div>
               <p className="text-xs text-neutral-300 leading-relaxed max-w-3xl">
                 Setiap angka laporan dapat dilacak hingga ke entri kuitansi receipt individual. Tidak ada saldo yang dihitung dari perkiraan ataupun hard-delete. Nilai Piutang Cutoff selalu mengacu pada histori pembukuan terverifikasi.
@@ -169,7 +169,7 @@ export default function ReportsPage() {
         {activeTab === "audit" && (
           <div className="space-y-6">
             <div className="p-4 rounded-2xl bg-neutral-100 text-xs text-neutral-600 flex items-center justify-between">
-              <span><strong>Invarian PRD §7.5 FR36:</strong> Seluruh aktivitas pembatalan, kredit, perubahan harga, dan akses sistem tercatat mutlak dan tidak dapat diedit siapapun.</span>
+              <span><strong>Audit Trail:</strong> Seluruh aktivitas pembatalan, kredit, perubahan harga, dan akses sistem tercatat mutlak dan tidak dapat diedit siapapun.</span>
               <span className="font-mono font-bold text-neutral-900">IMMUTABLE LOG</span>
             </div>
 

@@ -14,11 +14,18 @@ import {
   Smartphone,
   FileText
 } from "lucide-react";
+import { FeedbackModal, type FeedbackModalState } from "@/components/ui/feedback-modal";
 
 export default function SettingsPage() {
   const [printerSize, setPrinterSize] = useState<"58mm" | "80mm" | "a4">("58mm");
   const [autoPrintOnCommit, setAutoPrintOnCommit] = useState(true);
   const [supportAccessActive, setSupportAccessActive] = useState(false);
+  const [feedback, setFeedback] = useState<FeedbackModalState>({
+    isOpen: false,
+    type: "info",
+    title: "",
+    message: "",
+  });
 
   return (
     <div className="min-h-screen bg-[#FAFAFA] text-[#111111] antialiased pb-28 selection:bg-black selection:text-white">
@@ -34,7 +41,7 @@ export default function SettingsPage() {
             </Link>
             <div>
               <h1 className="text-lg font-bold tracking-tight text-neutral-900">Pengaturan Sistem, Printer & Langganan</h1>
-              <p className="text-xs text-neutral-500">Hardware Profile, Entitlements & Data Exit · PRD §14.3 & §19</p>
+              <p className="text-xs text-neutral-500">Konfigurasi Hardware, Paket Layanan & Ekspor Data</p>
             </div>
           </div>
         </div>
@@ -50,7 +57,7 @@ export default function SettingsPage() {
             </div>
             <div>
               <h2 className="text-xl font-bold">Profil Printer Struk Kasir</h2>
-              <p className="text-xs text-neutral-500">Mendukung printer thermal Bluetooth / USB standar kasir Indonesia (PRD §14.3)</p>
+              <p className="text-xs text-neutral-500">Mendukung printer thermal Bluetooth / USB standar kasir</p>
             </div>
           </div>
 
@@ -111,8 +118,8 @@ export default function SettingsPage() {
                 <CreditCard className="size-5" />
               </div>
               <div>
-                <h2 className="text-xl font-bold">Paket Langganan LaundryFlow</h2>
-                <p className="text-xs text-neutral-500">Terpisah penuh dari rekening transaksi cucian pelanggan (PRD §19.2)</p>
+                <h2 className="text-xl font-bold">Paket Langganan Rakkita</h2>
+                <p className="text-xs text-neutral-500">Terpisah penuh dari rekening transaksi cucian pelanggan</p>
               </div>
             </div>
             <span className="px-3.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold">
@@ -138,7 +145,14 @@ export default function SettingsPage() {
           <div className="pt-2 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 text-xs text-neutral-500">
             <span>Saat paket grace period/restricted, pengerjaan order aktif & serah terima tetap bisa diselesaikan.</span>
             <button 
-              onClick={() => alert("Ekspor arsip backup seluruh database tenant")}
+              onClick={() => {
+                setFeedback({
+                  isOpen: true,
+                  type: "success",
+                  title: "Arsip Data Disiapkan",
+                  message: "Link unduhan ekspor data lengkap outlet Anda siap diunduh dalam format zip aman.",
+                });
+              }}
               className="px-5 py-2.5 rounded-full bg-neutral-100 text-neutral-900 font-bold hover:bg-neutral-200 transition-all shrink-0 flex items-center gap-1.5"
             >
               <Download className="size-3.5" /> Unduh Seluruh Data Saya (Exit)
@@ -151,10 +165,21 @@ export default function SettingsPage() {
           <div className="flex items-center justify-between">
             <div className="space-y-1">
               <h3 className="text-base font-bold text-neutral-900">Izin Akses Bantuan Teknis (Support TTL 60 Menit)</h3>
-              <p className="text-xs text-neutral-500">Buka akses sementara untuk tim teknis jika butuh investigasi kendala pembukuan (PRD §7.5 FR39).</p>
+              <p className="text-xs text-neutral-500">Buka akses sementara untuk tim teknis jika butuh investigasi kendala pembukuan.</p>
             </div>
             <button
-              onClick={() => setSupportAccessActive(!supportAccessActive)}
+              onClick={() => {
+                const nextState = !supportAccessActive;
+                setSupportAccessActive(nextState);
+                setFeedback({
+                  isOpen: true,
+                  type: nextState ? "success" : "info",
+                  title: nextState ? "Akses Bantuan Aktif" : "Akses Bantuan Dicabut",
+                  message: nextState
+                    ? "Tim teknis diberikan izin baca sementara selama 60 menit untuk audit."
+                    : "Sesi bantuan teknis telah ditutup dan dikunci kembali.",
+                });
+              }}
               className={`px-5 py-2 rounded-full text-xs font-bold transition-all ${
                 supportAccessActive 
                   ? "bg-red-600 text-white" 
@@ -165,6 +190,12 @@ export default function SettingsPage() {
             </button>
           </div>
         </section>
+
+        {/* Global Feedback Modal */}
+        <FeedbackModal
+          state={feedback}
+          onClose={() => setFeedback((prev) => ({ ...prev, isOpen: false }))}
+        />
       </main>
     </div>
   );

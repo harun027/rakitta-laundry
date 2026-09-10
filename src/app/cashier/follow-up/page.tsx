@@ -21,10 +21,17 @@ import {
   Layers,
   Send
 } from "lucide-react";
+import { FeedbackModal, type FeedbackModalState } from "@/components/ui/feedback-modal";
 
 export default function FollowUpAndIssuesPage() {
   const [activeTab, setActiveTab] = useState<"uncollected" | "issues" | "rework">("uncollected");
   const [searchQuery, setSearchQuery] = useState("");
+  const [feedback, setFeedback] = useState<FeedbackModalState>({
+    isOpen: false,
+    type: "info",
+    title: "",
+    message: "",
+  });
 
   // FR35: Ready but uncollected queue
   const [uncollectedList, setUncollectedList] = useState([
@@ -109,7 +116,7 @@ export default function FollowUpAndIssuesPage() {
         orderNumber: item.orderNumber,
         customerName: item.customerName,
         customerPhone: item.customerPhone,
-        outletName: "LaundryFlow Surabaya Pusat",
+        outletName: "Rakkita Surabaya Pusat",
         serviceSummary: item.serviceSummary,
         balanceIdr: item.balanceIdr,
       },
@@ -144,7 +151,7 @@ export default function FollowUpAndIssuesPage() {
             </Link>
             <div>
               <h1 className="text-lg font-bold tracking-tight text-neutral-900">Antrean Tindak Lanjut, Isu & Rework</h1>
-              <p className="text-xs text-neutral-500">Manual WhatsApp Follow-up & Rework Governance · PRD §7.3 & §7.5</p>
+              <p className="text-xs text-neutral-500">Pengingat Pelanggan via WhatsApp & Penanganan Cuci Ulang</p>
             </div>
           </div>
         </div>
@@ -185,15 +192,15 @@ export default function FollowUpAndIssuesPage() {
             }`}
           >
             <RotateCcw className="size-4" />
-            Kasus Rework / Cuci Ulang (FR20)
+            Kasus Rework / Cuci Ulang
           </button>
         </div>
 
-        {/* Tab 1: Uncollected Follow-up Queue (FR35) */}
+        {/* Tab 1: Uncollected Follow-up Queue */}
         {activeTab === "uncollected" && (
           <div className="space-y-6">
             <div className="p-4 rounded-2xl bg-neutral-100 text-xs text-neutral-600 flex items-center justify-between">
-              <span><strong>Invarian PRD §7.5 FR34 &amp; FR35:</strong> Pesan WhatsApp disiapkan via link manual `wa.me`. Menekan tombol WhatsApp tidak boleh diklaim sebagai jaminan terkirim.</span>
+              <span><strong>WhatsApp Manual:</strong> Pesan WhatsApp disiapkan via link `wa.me` untuk dikonfirmasi dan dikirim langsung oleh staf.</span>
               <span className="font-mono font-bold">MANUAL DISPATCH</span>
             </div>
 
@@ -263,7 +270,17 @@ export default function FollowUpAndIssuesPage() {
                       <td className="py-4 px-6 text-right">
                         {iss.status === "OPEN" ? (
                           <button 
-                            onClick={() => alert("Selesaikan investigasi isu")}
+                            onClick={() => {
+                              setIssuesList((prev) =>
+                                prev.map((i) => (i.id === iss.id ? { ...i, status: "RESOLVED" } : i))
+                              );
+                              setFeedback({
+                                isOpen: true,
+                                type: "success",
+                                title: "Isu Diselesaikan",
+                                message: `Isu pada order ${iss.orderNumber} telah ditandai terselesaikan. Blokir serah terima telah dibuka.`,
+                              });
+                            }}
                             className="text-xs font-bold text-black hover:underline"
                           >
                             Tandai Selesai
@@ -313,6 +330,11 @@ export default function FollowUpAndIssuesPage() {
             </div>
           </div>
         )}
+        {/* Global Feedback Modal */}
+        <FeedbackModal
+          state={feedback}
+          onClose={() => setFeedback((prev) => ({ ...prev, isOpen: false }))}
+        />
       </main>
     </div>
   );

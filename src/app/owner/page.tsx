@@ -70,7 +70,7 @@ export default function OwnerOverviewPage() {
             </Link>
             <div>
               <h1 className="text-lg font-bold tracking-tight text-neutral-900">Ikhtisar Owner & Metrik Operasional</h1>
-              <p className="text-xs text-neutral-500">Executive Realtime Overview · PRD §8.1 & §22.2</p>
+              <p className="text-xs text-neutral-500">Executive Realtime Overview & Metrik Finansial</p>
             </div>
           </div>
 

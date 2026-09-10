@@ -24,6 +24,7 @@ import {
 import { useAuth } from "@/lib/supabase/auth-context";
 import { createClient } from "@/lib/supabase/client";
 import { apiFetch } from "@/lib/api/client";
+import { FeedbackModal, type FeedbackModalState } from "@/components/ui/feedback-modal";
 
 interface ProductionItem {
   id: string;
@@ -123,6 +124,12 @@ export default function ProductionPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [filterStage, setFilterStage] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState("");
+  const [feedback, setFeedback] = useState<FeedbackModalState>({
+    isOpen: false,
+    type: "info",
+    title: "",
+    message: "",
+  });
 
   const loadWorkItems = useCallback(async () => {
     if (!activeOutlet?.id) return;
@@ -209,7 +216,12 @@ export default function ProductionPage() {
         prev.map((it) => (it.id === id ? { ...it, stage: next, version: it.version + 1 } : it))
       );
     } catch (err: any) {
-      alert(err.message || "Gagal memperbarui status produksi.");
+      setFeedback({
+        isOpen: true,
+        type: "error",
+        title: "Pembaruan Gagal",
+        message: err.message || "Gagal memperbarui status produksi ke tahap berikutnya.",
+      });
       loadWorkItems();
     }
   };
@@ -273,7 +285,7 @@ export default function ProductionPage() {
       <TopBar
         width="wide"
         title="Workboard Produksi & QC"
-        subtitle="Urutan deadline tercepat · Snapshot alur kerja PRD §5.3"
+        subtitle="Urutan deadline tercepat · Monitoring tahapan pencucian & pengeringan"
         actions={
           <div className="flex items-center gap-3">
             <Button variant="outline" size="sm" onClick={loadWorkItems} disabled={isLoading}>
@@ -465,6 +477,12 @@ export default function ProductionPage() {
             </div>
           </div>
         </Modal>
+
+        {/* Global Feedback Modal */}
+        <FeedbackModal
+          state={feedback}
+          onClose={() => setFeedback((prev) => ({ ...prev, isOpen: false }))}
+        />
       </PageBody>
     </PageShell>
   );

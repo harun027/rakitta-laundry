@@ -190,7 +190,7 @@ export function ThermalReceiptModal({
             <div className="text-center pt-3 text-[9px] text-neutral-600 space-y-1">
               <div>Simpan struk ini sebagai bukti sah pengambilan.</div>
               <div>Terima kasih atas kepercayaan Anda!</div>
-              <div className="pt-1 font-bold">--- LaundryFlow SaaS ---</div>
+              <div className="pt-1 font-bold">--- Rakkita SaaS ---</div>
             </div>
           </div>
         </div>

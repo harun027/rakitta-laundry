@@ -1,5 +1,6 @@
 import { Metadata } from "next";
 import { Card } from "@/components/ui/card";
+import { Logo } from "@/components/ui/logo";
 import { DataRow, Notice } from "@/components/ui/stat";
 import { BRAND } from "@/lib/brand";
 import { formatRupiah } from "@/lib/utils";
@@ -79,9 +80,7 @@ export default async function CustomerTrackingPage({ params }: PageProps) {
     <div className="flex min-h-screen flex-col items-center justify-between bg-paper px-6 py-12">
       <main className="w-full max-w-lg space-y-8">
         <header className="space-y-2 text-center">
-          <div className="mx-auto grid size-12 place-items-center rounded-full bg-ink text-sm font-black tracking-tighter text-white">
-            {BRAND.mark}
-          </div>
+          <Logo height={36} className="mx-auto" priority />
           <h1 className="text-2xl font-extrabold tracking-tight">{trackedData.outletName}</h1>
           <p className="eyebrow">Pelacakan Status Cucian</p>
         </header>
