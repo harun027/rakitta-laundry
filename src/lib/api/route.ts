@@ -52,6 +52,13 @@ const MESSAGES: Record<string, string> = {
   receiver_required: "Nama penerima fisik wajib dicatat.",
   credit_reason_required: "Alasan persetujuan kredit wajib dicatat.",
   credit_limit_exceeded: "Sisa tagihan melebihi batas persetujuan kredit.",
+  cancel_forbidden: "Pembatalan order hanya boleh dilakukan owner atau supervisor.",
+  cancel_reason_required: "Alasan pembatalan wajib dicatat.",
+  cancel_after_handover:
+    "Order yang sudah diserahkan tidak bisa dibatalkan. Gunakan jalur keluhan atau cuci ulang.",
+  already_cancelled: "Order ini sudah dibatalkan.",
+  subscription_restricted:
+    "Langganan Rakkita sedang dibatasi, jadi order baru diblokir. Order yang sedang berjalan tetap bisa diselesaikan, dibayar, dan diserahkan. Hubungi admin penagihan untuk mengaktifkan kembali.",
   append_only: "Catatan keuangan tidak bisa diubah atau dihapus.",
   internal: "Terjadi kesalahan di server. Coba lagi atau hubungi supervisor.",
 };
@@ -113,10 +120,9 @@ export function handle(
   fn: (ctx: Ctx) => Promise<{ status?: number; data: unknown }>,
   options: { requireIdempotency?: boolean } = {}
 ) {
-  return async (
-    request: Request,
-    segment: { params: Promise<Record<string, string>> } = { params: Promise.resolve({}) }
-  ) => {
+  // Next's generated RouteContext is never optional, so neither is this
+  // parameter; static routes simply hand over an empty params promise.
+  return async (request: Request, segment: { params: Promise<Record<string, string>> }) => {
     const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
 
     try {
@@ -139,7 +145,7 @@ export function handle(
         body,
         requestId,
         idempotencyKey,
-        params: await segment.params,
+        params: (await segment?.params) ?? {},
       });
 
       return NextResponse.json(result.data, {

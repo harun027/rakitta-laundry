@@ -6,6 +6,7 @@ import { Logo } from "@/components/ui/logo";
 import { ArrowRight, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { apiFetch } from "@/lib/api/client";
+import { useIdempotencyKey } from "@/lib/api/idempotency";
 import { Select, type SelectOption } from "@/components/ui/select";
 
 const TIMEZONE_OPTIONS: SelectOption[] = [
@@ -15,6 +16,8 @@ const TIMEZONE_OPTIONS: SelectOption[] = [
 ];
 
 export default function OnboardingPage() {
+  // §13.3 — retrying the signup form must not bootstrap a second tenant.
+  const idem = useIdempotencyKey();
   const [step, setStep] = useState(1);
   const [businessName, setBusinessName] = useState("");
   const [outletName, setOutletName] = useState("");
@@ -57,6 +60,7 @@ export default function OnboardingPage() {
         try {
           await apiFetch("/api/onboarding", {
             method: "POST",
+            idempotencyKey: idem.key("bootstrap-tenant"),
             body: JSON.stringify({
               business_name: businessName.trim(),
               outlet_name: outletName.trim(),
@@ -65,6 +69,7 @@ export default function OnboardingPage() {
               owner_name: ownerName.trim(),
             }),
           });
+          idem.reset("bootstrap-tenant");
         } catch {
           // If already created or in offline preview mode, continue
         }
