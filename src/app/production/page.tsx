@@ -386,7 +386,7 @@ export default function ProductionPage() {
                       </div>
                       {item.notes && (
                         <div className="pt-1 text-[11px] italic text-ink-muted">
-                          "{item.notes}"
+                          &ldquo;{item.notes}&rdquo;
                         </div>
                       )}
                     </div>

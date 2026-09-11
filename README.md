@@ -121,7 +121,7 @@ npm run check:domain
 ```bash
 npm run dev
 ```
-Buka browser di `http://localhost:3000`.
+Buka browser di `http://localhost:3007`.
 
 ### 6. Build Produksi
 ```bash
